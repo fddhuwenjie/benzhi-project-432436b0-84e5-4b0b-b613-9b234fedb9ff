@@ -35,8 +35,16 @@ func (s *Service) mutate(id string, cmd Command, typ string, fn func(*domain.Tre
 			return nil, fmt.Errorf("request canceled: %w", err)
 		}
 	}
-	unlock := s.Locker.Lock(id)
+	unlock, err := s.Locker.LockContext(id, cmd.Context)
+	if err != nil {
+		return nil, fmt.Errorf("request canceled: %w", err)
+	}
 	defer unlock()
+	if cmd.Context != nil {
+		if err := cmd.Context.Err(); err != nil {
+			return nil, fmt.Errorf("request canceled: %w", err)
+		}
+	}
 	if cmd.RequestID != "" {
 		if old, ok := s.Store.GetIdempotency(cmd.RequestID); ok {
 			if old.Fingerprint != commandFingerprint(id, typ, cmd) {
