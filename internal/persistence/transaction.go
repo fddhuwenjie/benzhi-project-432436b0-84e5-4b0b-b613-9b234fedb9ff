@@ -36,6 +36,11 @@ func Clone(c *domain.TreatmentCase) *domain.TreatmentCase {
 	for i := range cp.ProfileCorrections {
 		cp.ProfileCorrections[i].Changes = append([]domain.FieldChange(nil), c.ProfileCorrections[i].Changes...)
 	}
+	cp.Assessment = cloneAssessment(c.Assessment)
+	cp.AssessmentHistory = make([]domain.ContaminationAssessment, len(c.AssessmentHistory))
+	for i := range c.AssessmentHistory {
+		cp.AssessmentHistory[i] = *cloneAssessment(&c.AssessmentHistory[i])
+	}
 	cp.AssessmentDiffs = cloneAssessmentDiffs(c.AssessmentDiffs)
 	cp.PlannedCheckpoints = append([]domain.PlannedCheckpoint(nil), c.PlannedCheckpoints...)
 	cp.RectificationItems = append([]domain.RectificationItem(nil), c.RectificationItems...)
@@ -92,6 +97,15 @@ func cloneDeviations(deviations []domain.Deviation) []domain.Deviation {
 		cp[i].EvidenceRefs = append([]string(nil), deviations[i].EvidenceRefs...)
 	}
 	return cp
+}
+
+func cloneAssessment(assessment *domain.ContaminationAssessment) *domain.ContaminationAssessment {
+	if assessment == nil {
+		return nil
+	}
+	cp := *assessment
+	cp.SamplePoints = append([]domain.SamplePoint(nil), assessment.SamplePoints...)
+	return &cp
 }
 
 func cloneAssessmentDiffs(diffs []domain.AssessmentDiff) []domain.AssessmentDiff {
