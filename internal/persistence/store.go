@@ -137,9 +137,41 @@ func (s *Store) Save(c *domain.TreatmentCase, event audit.Event) error {
 func (s *Store) SaveIdempotency(id, fp string, resp []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.idem[id] = Idempotent{fp, resp}
-	b, _ := json.Marshal(s.idem)
-	return os.WriteFile(filepath.Join(s.dir, "idempotency.json"), b, 0644)
+	next := make(map[string]Idempotent, len(s.idem)+1)
+	for k, v := range s.idem {
+		next[k] = v
+	}
+	next[id] = Idempotent{fp, resp}
+	b, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err = os.WriteFile(filepath.Join(s.dir, "idempotency.json"), b, 0644); err != nil {
+		return err
+	}
+	s.idem = next
+	return nil
+}
+func (s *Store) RemoveIdempotency(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.idem[id]; !ok {
+		return
+	}
+	next := make(map[string]Idempotent, len(s.idem)-1)
+	for k, v := range s.idem {
+		if k != id {
+			next[k] = v
+		}
+	}
+	b, err := json.Marshal(next)
+	if err != nil {
+		return
+	}
+	if err = os.WriteFile(filepath.Join(s.dir, "idempotency.json"), b, 0644); err != nil {
+		return
+	}
+	s.idem = next
 }
 func (s *Store) GetIdempotency(id string) (Idempotent, bool) {
 	s.mu.Lock()

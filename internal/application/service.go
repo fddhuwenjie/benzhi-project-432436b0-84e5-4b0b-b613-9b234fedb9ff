@@ -78,12 +78,17 @@ func (s *Service) mutate(id string, cmd Command, typ string, fn func(*domain.Tre
 		payload = c.Evidence
 	}
 	ev := audit.Append(s.Store.Events(id), id, c.Revision, typ, cmd.Actor, payload, time.Now())
-	if err := s.Store.Save(c, ev); err != nil {
-		return nil, err
-	}
 	if cmd.RequestID != "" {
 		b, _ := json.Marshal(c)
-		s.Store.SaveIdempotency(cmd.RequestID, commandFingerprint(id, typ, cmd), b)
+		if err := s.Store.SaveIdempotency(cmd.RequestID, commandFingerprint(id, typ, cmd), b); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.Store.Save(c, ev); err != nil {
+		if cmd.RequestID != "" {
+			s.Store.RemoveIdempotency(cmd.RequestID)
+		}
+		return nil, err
 	}
 	return c, nil
 }
@@ -127,12 +132,17 @@ func (s *Service) Create(site, section, symptom, owner string, temp, humidity fl
 		return nil, err
 	}
 	ev := audit.Append(nil, id, c.Revision, "CASE_CREATED", owner, c, time.Now())
-	if err = s.Store.Save(c, ev); err != nil {
-		return nil, err
-	}
 	if reqID != "" {
 		b, _ := json.Marshal(c)
-		_ = s.Store.SaveIdempotency(reqID, fingerprint(createPayload), b)
+		if err = s.Store.SaveIdempotency(reqID, fingerprint(createPayload), b); err != nil {
+			return nil, err
+		}
+	}
+	if err = s.Store.Save(c, ev); err != nil {
+		if reqID != "" {
+			s.Store.RemoveIdempotency(reqID)
+		}
+		return nil, err
 	}
 	return c, nil
 }
