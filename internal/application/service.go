@@ -8,6 +8,7 @@ import (
 	"mural-biocare/internal/audit"
 	"mural-biocare/internal/domain"
 	"mural-biocare/internal/persistence"
+	"sync"
 	"time"
 )
 
@@ -15,7 +16,7 @@ type Service struct {
 	Store                  *persistence.Store
 	Locker                 *persistence.CaseLocker
 	BaselineRetestInterval time.Duration
-	caseCache              map[string]*cachedCase
+	caseCache              sync.Map // map[string]*cachedCase
 }
 
 type cachedCase struct {
@@ -28,7 +29,6 @@ func New(s *persistence.Store) *Service {
 		Store:                  s,
 		Locker:                 persistence.NewCaseLocker(),
 		BaselineRetestInterval: 24 * time.Hour,
-		caseCache:              map[string]*cachedCase{},
 	}
 }
 
@@ -92,7 +92,7 @@ func (s *Service) mutate(id string, cmd Command, typ string, fn func(*domain.Tre
 	if err := s.Store.Save(c, ev); err != nil {
 		return nil, err
 	}
-	delete(s.caseCache, id)
+	s.invalidateCache(id)
 	if cmd.RequestID != "" {
 		b, _ := json.Marshal(c)
 		s.Store.SaveIdempotency(cmd.RequestID, commandFingerprint(id, typ, cmd), b)
@@ -254,12 +254,17 @@ func (s *Service) Archive(id string, cmd Command) (*domain.TreatmentCase, error)
 		return c.Archive(m, cmd.Actor, cmd.ExpectedRevision)
 	})
 }
+func (s *Service) invalidateCache(id string) { s.caseCache.Delete(id) }
 func (s *Service) Get(id string) (*domain.TreatmentCase, bool) {
-	if entry, ok := s.caseCache[id]; ok {
-		entry.hits++
-		var cached domain.TreatmentCase
-		if json.Unmarshal(entry.payload, &cached) == nil {
-			return &cached, true
+	unlock := s.Locker.Lock(id)
+	defer unlock()
+	if raw, ok := s.caseCache.Load(id); ok {
+		if entry, ok := raw.(*cachedCase); ok {
+			entry.hits++
+			var cached domain.TreatmentCase
+			if json.Unmarshal(entry.payload, &cached) == nil {
+				return &cached, true
+			}
 		}
 	}
 	c, ok := s.Store.Get(id)
@@ -267,7 +272,7 @@ func (s *Service) Get(id string) (*domain.TreatmentCase, bool) {
 		return nil, false
 	}
 	if raw, err := json.Marshal(c); err == nil {
-		s.caseCache[id] = &cachedCase{payload: raw, hits: 1}
+		s.caseCache.Store(id, &cachedCase{payload: raw, hits: 1})
 	}
 	return c, true
 }
