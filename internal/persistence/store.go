@@ -117,12 +117,13 @@ func (s *Store) Save(c *domain.TreatmentCase, event audit.Event) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err = os.Rename(eventsTmp, eventsFinal); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
 	if err = os.Rename(tmp, final); err != nil {
 		_ = os.Remove(tmp)
+		_ = os.Remove(eventsTmp)
+		return err
+	}
+	if err = os.Rename(eventsTmp, eventsFinal); err != nil {
+		_ = os.Remove(eventsTmp)
 		return err
 	}
 	s.cases[c.CaseID] = c
